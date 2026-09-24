@@ -1,0 +1,55 @@
+name: wafer-calibration
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: calibration
+      POSTGRES_PASSWORD: calibration
+      POSTGRES_DB: calibration
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U calibration -d calibration"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  app:
+    build:
+      context: .
+      target: runtime
+    environment:
+      DATABASE_URL: postgresql://calibration:calibration@db:5432/calibration
+    depends_on:
+      db:
+        condition: service_healthy
+    # Host port is configurable: APP_HOST_PORT=9090 docker compose up app
+    ports:
+      - "${APP_HOST_PORT:-8080}:8000"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import urllib.request,sys;
+          sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health',
+          timeout=2).status == 200 else 1)"
+      interval: 3s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  # Runs build checks + the test suite once, then exits with the result.
+  # Only starts after app is healthy, so publishes are served by then.
+  verify:
+    build:
+      context: .
+      target: verify
+    environment:
+      APP_BASE_URL: http://app:8000
+    depends_on:
+      app:
+        condition: service_healthy
+
+volumes:
+  db_data:
